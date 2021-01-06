@@ -6,6 +6,8 @@ Each new instance will establish and print lines in a terminal scroll region who
 
 pdanford - January 2021
 
+![](assets/example.gif)
+
 ##### Title
 Regions can either have a title or not. In the case of no title, regions have no separation. A title of " " can be used in this case to provide separation if desired.
 
@@ -24,7 +26,16 @@ There is no terminal window size change callback, so instead any scroll region r
 If the terminal window height is not enough to display scroll regions for all scroll region instances, a highlighted ↓ will appear in the first column which means "more scroll regions hidden below". When window height is increased, these are cleared/updated during the next AddLine() call.
 
 ### Use
-See [example](example.py).
+```
+from ScrollRegion import ScrollRegion
+
+region = ScrollRegion("--- title ---")
+
+for i in range(100):
+    region.AddLine(i)
+```
+
+###### For the demo image, see this [example](example.py).
 
 ### Requirements
 - Python 3.6+ 
