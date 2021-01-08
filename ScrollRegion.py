@@ -16,30 +16,37 @@ class ScrollRegion:
     Note: requires VT100 escape compatibility
     """
 
-    # where scroll region is located in terminal window (1st instance)
-    __scroll_region_start_row = 1
-    __scroll_region_end_row = 2
+    ## ----- initial class values -----
 
-    # keeps track of the last row printed to this scroll region
-    __last_printed_row = 0
+    # where 1st instance scroll region is located in terminal window
+    __scroll_region_start_row = 1
+
+    # used to detect terminal window size changes
+    __prev_terminal_columns, __prev_terminal_rows = get_terminal_size()
+
+    # a list of all ScrollRegion instances
+    __scroll_regions_list = []
+
+    # class global flag at that scroll region(s) didn't have enough room
+    # on terminal screen for their height to display all lines
+    __more_below_message = ""
+
+    ## ----- instance variables -----
 
     # storage for scroll region title line 
     # note this should only be updated through SetTitle() because it modifies
     # the scroll region start location
     __title = ""
 
-    # used to detect terminal window size changes
-    __prev_terminal_columns, __prev_terminal_rows = get_terminal_size()
+    # storage for last row number of terminal scroll region
+    __scroll_region_end_row = 0
+
+    # keeps track of the last row printed to this scroll region
+    __last_printed_row = 0
 
     # small cache for the lines added to the region
     __line_cache = deque()
  
-    # a list of all ScrollRegion instances
-    __scroll_regions_list = []
-
-    # class global flag at that some scroll region(s) didn't have enough room
-    # on terminal screen
-    __more_below_message = ""
 
     def __init__(self,
                  title = "",
