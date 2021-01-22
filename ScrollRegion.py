@@ -2,10 +2,17 @@ from time import sleep
 from shutil import get_terminal_size
 from collections import deque
 
-# version 1.0.0
+# version 1.1.0
 # requires Python 3.6+ 
 # pdanford - January 2021
 # MIT License
+
+# ANSI terminal escape sequences
+ANSI_yellow_bg = "\x1b[0;43m"
+ANSI_color_reset = "\x1b[0m"
+ANSI_clear_screen = "\x1bc"
+ANSI_clear_rest_of_line = "\x1b[K"
+ANSI_erase_scrollback_buffer = "\x1b[3J"
 
 class ScrollRegion:
     """
@@ -26,6 +33,16 @@ class ScrollRegion:
 
     # a list of all ScrollRegion instances
     __scroll_regions_list = []
+
+    # Class global flags to indicate a scroll region didn't have enough room
+    # for all its rows to print for the current terminal window height
+    __more_below_flag = False
+    __prev_more_below_flag = False
+
+    # message to display at bottom of terminal window when window height isn't
+    # enough for all scroll region(s) rows
+    __more_below_message =\
+      f"{ANSI_yellow_bg} ↓↓ more below ↓↓ {ANSI_color_reset}{ANSI_clear_rest_of_line}"
 
     ## ----- instance variables -----
 
@@ -75,11 +92,11 @@ class ScrollRegion:
 
         # prep terminal window on first use for clean display of ScrollRegion(s)
         if len(ScrollRegion.__scroll_regions_list) == 0:
-            # clear terminal window scroll-back buffer, otherwise it will
+            # clear terminal window and scroll-back buffer, otherwise it will
             # interfere with display when terminal window is resized or
             # scrolled back:
-            print("\x1bc", end="")   # clear screen
-            print("\x1b[3J", end="") # erase terminal scroll-back buffer
+            print(f"{ANSI_clear_screen}", end="")
+            print(f"{ANSI_erase_scrollback_buffer}", end="")
 
         ScrollRegion.__scroll_regions_list.append(self)
 
@@ -92,23 +109,30 @@ class ScrollRegion:
         # print done/exit message (once using __scroll_region_start_row to
         # detect when the oldest ScrollRegion is garbage collected)
         if self.__scroll_region_start_row <= 2:
-            print(f"\x1b[r", end="")         # reset term to default scrolling region
+            # reset term to default scrolling region
+            ANSI_set_scroll_region ="\x1b[r"
+            print(f"{ANSI_set_scroll_region}", end="")
+
+            # position cursor to window bottom
             columns, rows = get_terminal_size()
-            print(f"\x1b[{rows};1H", end="") # position cursor to window bottom
+            ANSI_postion_to_row = f"\x1b[{rows};1H"
+            print(f"{ANSI_postion_to_row}", end="")
             print("\n-- done --")
 
 
     def ClearScrollRegion(self, blanking_string = ""):
         """
-        Blanks the entire scroll region and line cache (including title
+        Clears the entire scroll region and line cache (including title
         area) with blanking_string.
         """
         # remove any title so entire scroll region is cleared
         self.SetTitle("")
 
-        # flush line cache
+        # flush line cache with blanking_string
+        self.__line_cache.clear()
         for i in range(self.__scroll_region_height):
-            self.AddLine(blanking_string, 0)
+            self.__line_cache.append(blanking_string)
+            self.__Print(blanking_string, 0)
 
 
     def SetTitle(self, title):
@@ -136,10 +160,13 @@ class ScrollRegion:
             title_row = self.__scroll_region_start_row - 1
             terminal_columns, terminal_rows = get_terminal_size()
             if (title_row <= terminal_rows and
-               title_row > 0):
-                print(f"\x1b[{title_row};1H", end="") # position to title row
-                print(f"{self.__title}", end="")      # print title
-                print("\x1b[K", end="")               # clear rest of line
+                title_row > 0):
+                # position to title row
+                ANSI_postion_to_row = f"\x1b[{title_row};1H"
+                print(f"{ANSI_postion_to_row}", end="")
+                # print title
+                print(f"{self.__title}", end="")
+                print(f"{ANSI_clear_rest_of_line}", end="")
 
 
     def AddLine(self, line, scroll_delay_s = 0.125):
@@ -148,7 +175,8 @@ class ScrollRegion:
 
         scroll_delay_s - scroll delay each line print for readability
         """
-        # Add this line to the cache in case its needed for a refresh trigger
+        # Add this line to the cache
+        # (in case it's needed for a refresh trigger later)
         self.__line_cache.append(line)
 
         if len(self.__line_cache) > self.__scroll_region_height:
@@ -158,16 +186,28 @@ class ScrollRegion:
         # Print newly added line to this scroll region end row
         self.__Print(line, scroll_delay_s)
 
-        trigger = self.__CheckScreenRefreshTrigger()
-        if trigger == "REPRINT_ALL_SCROLL_REGIONS":
-            # entire terminal window needs updating
+        reprint_trigger = self.__CheckScreenRefreshTrigger()
+        if reprint_trigger == "REPRINT_ALL_SCROLL_REGIONS":
+            # clear class global "more below" flag (to be reset during next
+            # __Print() if needed
+            ScrollRegion.__more_below_flag = False
 
-            # erase terminal scroll-back buffer
-            print("\x1b[3J", end="")
+            # erase terminal's scrollback buffer
+            print(f"{ANSI_erase_scrollback_buffer}", end="")
 
             # reprint all regions' cache
+            # (do in reverse so __more_below_flag is updated for higher
+            # regions that it may encroach on) 
             for r in reversed(ScrollRegion.__scroll_regions_list):
                 r.__ReprintScrollRegion()
+
+            ## ---------------------------------
+
+            if ScrollRegion.__more_below_flag:
+                # display "more below" message at last row of terminal window
+                terminal_columns, terminal_rows = get_terminal_size()
+                ANSI_postion_to_row = f"\x1b[{terminal_rows};1H"
+                print(f"{ANSI_postion_to_row}{ScrollRegion.__more_below_message}", end="")
 
 
     def __Print(self, line, scroll_delay_s):
@@ -181,9 +221,18 @@ class ScrollRegion:
         # make sure that this scroll region start is actually on screen
         terminal_columns, terminal_rows = get_terminal_size()
 
+        if ScrollRegion.__more_below_flag:
+            # since this or some other ScrollRegion flagged it was truncated,
+            # leave room to for "more below" message at bottom of window when
+            # line data is printed below (matters when this region is at the
+            # bottom of the terminal window)
+            terminal_rows = terminal_rows - 1 # leave 1 row for "more below"
+                                              # message
+
         # don't print line if none of scroll region is within terminal window
         if self.__scroll_region_start_row > terminal_rows:
-            # there was no room to print in this region
+            # there was no room to print any of this region's rows
+            ScrollRegion.__more_below_flag = True
             return
 
         # ensure area where line data is to be printed is in terminal window
@@ -191,13 +240,16 @@ class ScrollRegion:
             # limit if there's only enough room for partial scroll region
             # (scroll region is truncated) but enough to print line
             print_row_num = terminal_rows
+            ScrollRegion.__more_below_flag = True
         else:
             print_row_num = self.__scroll_region_end_row
 
         # set scrolling region for this ScrollRegion instance
-        print(f"\x1b[{self.__scroll_region_start_row};{print_row_num}r", end="")
+        ANSI_set_scroll_region = f"\x1b[{self.__scroll_region_start_row};{print_row_num}r"
+        print(f"{ANSI_set_scroll_region}", end="")
         # position to end of scroll region before printing line data
-        print(f"\x1b[{print_row_num};1H", end="")
+        ANSI_postion_to_row = f"\x1b[{print_row_num};1H"
+        print(f"{ANSI_postion_to_row}", end="")
 
         if print_row_num - self.__scroll_region_start_row >= 1:
             # prepend a newline to cause previous lines to scroll up in region
@@ -205,8 +257,7 @@ class ScrollRegion:
         else:
             # don't do the prepend \n for scroll regions of 1 row because some
             # terminals will scroll any title line too in certain edge cases
-            print(f"{line}\r", end="")
-
+            print(f"{line}{ANSI_clear_rest_of_line}\r", end="")
 
         # scroll delay each line for readability
         sleep(scroll_delay_s)
@@ -240,12 +291,11 @@ class ScrollRegion:
         for this new terminal window size
 
         return flag strings:
-
-                      empty string - no reprint necessary
-        REPRINT_ALL_SCROLL_REGIONS - window height has changed in such a way
-                                     that its scroll-back buffer should be
-                                     cleared and all scroll regions should be
-                                     reprinted entirely to fix coordinates
+                        empty string - no reprint necessary
+          REPRINT_ALL_SCROLL_REGIONS - window height has changed in such a way
+                                       that its scroll-back buffer should be
+                                       cleared and all scroll regions should be
+                                       reprinted entirely to fix coordinates
         """
         # get current terminal window dimensions
         terminal_columns, terminal_rows = get_terminal_size()
@@ -258,16 +308,27 @@ class ScrollRegion:
             # buffer to activate which causes the scroll region coordinates to
             # change
             return_flag = "REPRINT_ALL_SCROLL_REGIONS"
-
         elif terminal_columns != ScrollRegion.__prev_terminal_columns:
             # terminal_columns changed which may cause the terminal's
             # scroll-back buffer to activate because of line wrapping
             # which causes the scroll region coordinates to change
             return_flag = "REPRINT_ALL_SCROLL_REGIONS"
+        elif (ScrollRegion.__more_below_flag == True and
+              ScrollRegion.__prev_more_below_flag == False):
+            # this case is for when a region is instantiated and is partially 
+            # truncated at terminal window bottom or entirely after end of
+            # terminal window bottom
+            #
+            # visible ones may need to redraw too accommodate the "more below"
+            # message (and the "more below" message needs to be displayed)
+            return_flag = "REPRINT_ALL_SCROLL_REGIONS"
 
         # update for next trigger check
+        ScrollRegion.__prev_more_below_flag = ScrollRegion.__more_below_flag
+
         ScrollRegion.__prev_terminal_columns,\
-             ScrollRegion.__prev_terminal_rows = terminal_columns, terminal_rows
+        ScrollRegion.__prev_terminal_rows =\
+          terminal_columns, terminal_rows
 
         return return_flag
 
