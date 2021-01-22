@@ -2,7 +2,7 @@ from time import sleep
 from shutil import get_terminal_size
 from collections import deque
 
-# version 1.1.0
+# version 1.1.1
 # requires Python 3.6+ 
 # pdanford - January 2021
 # MIT License
@@ -254,6 +254,15 @@ class ScrollRegion:
         if print_row_num - self.__scroll_region_start_row >= 1:
             # prepend a newline to cause previous lines to scroll up in region
             print(f"\n{line}\r", end="")
+
+            # ** fix for macOS terminal edge case **
+            if (self.__title == "" and
+                self.__scroll_region_start_row == 1):
+                # when the first scroll region doesn't have a title, macOS's
+                # terminal will still fill the scroll-back buffer, so this
+                # keeps it clear to avoid confusion if the window scroll-bar
+                # is accidentally used - iterm2 doesn't have this issue
+                print(f"{ANSI_erase_scrollback_buffer}", end="")
         else:
             # don't do the prepend \n for scroll regions of 1 row because some
             # terminals will scroll any title line too in certain edge cases
