@@ -2,7 +2,7 @@ from time import sleep
 from shutil import get_terminal_size
 from collections import deque
 
-# version 1.1.2
+# version 1.1.3
 # requires Python 3.6+ 
 # pdanford - January 2021
 # MIT License
@@ -169,7 +169,7 @@ class ScrollRegion:
                 print(f"{ANSI_postion_to_row}", end="")
                 # print title
                 print(f"{self.__title}", end="")
-                print(f"{ANSI_clear_rest_of_line}", end="")
+                print(f"{ANSI_clear_rest_of_line}\r", end="")
 
                 ## ---------------------------------
 
